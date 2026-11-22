@@ -135,8 +135,21 @@ func Pull(ctx context.Context, st store.Store, reference, output string, chunkSi
 	if err != nil {
 		return nil, err
 	}
+	var downloadedChunks, cachedChunks int
+	var downloadedBytes int64
 	open := func(index int) (io.ReadCloser, error) {
-		return fetchChunk(ctx, st, reference, artifact.Layers[index], cacheDir)
+		desc := artifact.Layers[index]
+		reader, cached, err := fetchChunk(ctx, st, reference, desc, cacheDir)
+		if err != nil {
+			return nil, err
+		}
+		if cached {
+			cachedChunks++
+		} else {
+			downloadedChunks++
+			downloadedBytes += desc.Size
+		}
+		return reader, nil
 	}
 	succeeded := false
 	defer func() {
@@ -155,6 +168,7 @@ func Pull(ctx context.Context, st store.Store, reference, output string, chunkSi
 	if err != nil {
 		return nil, err
 	}
+	logf("下载完成: 分片 %d，缓存复用 %d，下载 %d 字节", downloadedChunks+cachedChunks, cachedChunks, downloadedBytes)
 	logf("还原完成，校验内容指纹")
 	restored, err := pack.Scan(output, spec.ChunkSize)
 	if err != nil {
@@ -163,6 +177,8 @@ func Pull(ctx context.Context, st store.Store, reference, output string, chunkSi
 	if restored.Fingerprint != spec.Fingerprint {
 		return nil, fmt.Errorf("内容指纹不一致: 期望 %s，实际 %s", spec.Fingerprint, restored.Fingerprint)
 	}
+	logf("内容指纹: %s", spec.Fingerprint)
+	logf("校验通过")
 	verified := true
 	succeeded = true
 	return &Result{
@@ -212,23 +228,25 @@ func chunkCacheDir() (string, error) {
 	return dir, nil
 }
 
-// fetchChunk 优先使用本地分片缓存，未命中时下载并校验摘要后写入缓存。
-func fetchChunk(ctx context.Context, st store.Store, reference string, desc ocispec.Descriptor, cacheDir string) (io.ReadCloser, error) {
+// fetchChunk 优先使用本地分片缓存；未命中时下载并校验摘要后写入缓存。
+// 第二个返回值表示是否命中缓存。
+func fetchChunk(ctx context.Context, st store.Store, reference string, desc ocispec.Descriptor, cacheDir string) (io.ReadCloser, bool, error) {
 	key := strings.TrimPrefix(desc.Digest.String(), "sha256:")
 	cachePath := filepath.Join(cacheDir, key)
 	if info, err := os.Stat(cachePath); err == nil && info.Size() == desc.Size {
-		return os.Open(cachePath)
+		reader, err := os.Open(cachePath)
+		return reader, true, err
 	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, false, err
 	}
 	reader, err := st.Fetch(ctx, reference, desc)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	tmp, err := os.CreateTemp(cacheDir, key+".part-*")
 	if err != nil {
 		reader.Close()
-		return nil, err
+		return nil, false, err
 	}
 	hasher := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), reader)
@@ -237,27 +255,28 @@ func fetchChunk(ctx context.Context, st store.Store, reference string, desc ocis
 		tmp.Close()
 		os.Remove(tmp.Name())
 		if copyErr != nil {
-			return nil, copyErr
+			return nil, false, copyErr
 		}
-		return nil, closeErr
+		return nil, false, closeErr
 	}
 	if size != desc.Size {
 		tmp.Close()
 		os.Remove(tmp.Name())
-		return nil, fmt.Errorf("分片大小不一致: 期望 %d，实际 %d", desc.Size, size)
+		return nil, false, fmt.Errorf("分片大小不一致: 期望 %d，实际 %d", desc.Size, size)
 	}
 	if got := "sha256:" + hex.EncodeToString(hasher.Sum(nil)); got != desc.Digest.String() {
 		tmp.Close()
 		os.Remove(tmp.Name())
-		return nil, fmt.Errorf("分片摘要不一致: 期望 %s，实际 %s", desc.Digest, got)
+		return nil, false, fmt.Errorf("分片摘要不一致: 期望 %s，实际 %s", desc.Digest, got)
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmp.Name())
-		return nil, err
+		return nil, false, err
 	}
 	if err := os.Rename(tmp.Name(), cachePath); err != nil {
 		os.Remove(tmp.Name())
-		return nil, err
+		return nil, false, err
 	}
-	return os.Open(cachePath)
+	reader, err = os.Open(cachePath)
+	return reader, false, err
 }
