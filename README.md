@@ -32,6 +32,10 @@ ec package pull -i <发布地址> -o <离线包>
 
 上传使用本机容器凭据（`docker login` 后的仓库可直接使用），不提供登录命令；下载按仓库策略执行，公开仓库匿名可拉。
 
+## 发布与下载
+
+已发布版本见 [Releases](https://github.com/theriseunion-edge/edge-cli/releases)，版本记录、校验值与发布流程见 project 的[EdgeCLI 版本发布](https://github.com/theriseunion-edge/project/blob/main/docs/architecture/edge-cli/releases.md)。
+
 ## 构建与测试
 
 ```bash
