@@ -33,3 +33,20 @@ jobs:
           go-version: "1.24.x"
       - name: e2e
         run: make e2e
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: dist
+        run: make dist VERSION="dev-${GITHUB_SHA::12}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-cli-dev-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
