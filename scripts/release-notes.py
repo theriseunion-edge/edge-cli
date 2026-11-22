@@ -9,10 +9,12 @@ TAG = sys.argv[1]
 CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
 lines = CHANGELOG.read_text(encoding="utf-8").splitlines()
 
-heading = f"## {TAG}"
 start = None
 for index, line in enumerate(lines):
-    if line.strip() == heading:
+    if not line.startswith("## "):
+        continue
+    fields = line[3:].split()
+    if fields and fields[0] == TAG:
         start = index
         break
 if start is None:
