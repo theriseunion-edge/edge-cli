@@ -45,6 +45,21 @@ jobs:
           go-version: "1.24.x"
       - name: dist
         run: make dist VERSION="dev-${GITHUB_SHA::12}"
+      - name: verify static linux binaries
+        run: |
+          for arch in amd64 arm64; do
+            tmp=$(mktemp -d)
+            tar -xzf "dist/edge-cli-dev-${GITHUB_SHA::12}-linux-${arch}.tar.gz" -C "$tmp"
+            out=$(file "$tmp/ec")
+            echo "linux/${arch}: ${out}"
+            echo "$out" | grep -q "statically linked"
+            if readelf -d "$tmp/ec" 2>/dev/null | grep -q "(NEEDED)"; then
+              echo "ERROR: linux/${arch} binary has dynamic library dependencies" >&2
+              readelf -d "$tmp/ec" >&2
+              exit 1
+            fi
+            rm -rf "$tmp"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: edge-cli-dev-${{ github.sha }}

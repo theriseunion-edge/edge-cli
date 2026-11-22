@@ -7,7 +7,7 @@ PLATFORMS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 .PHONY: build test vet fmt dist e2e clean
 
 build:
-	go build -trimpath -ldflags "-s -w -X $(PACKAGE)/internal/cli.Version=$(VERSION)" -o $(BIN) ./cmd/ec
+	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X $(PACKAGE)/internal/cli.Version=$(VERSION)" -o $(BIN) ./cmd/ec
 
 test:
 	go test ./...
@@ -22,7 +22,7 @@ dist:
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	@for platform in $(PLATFORMS); do \
 		os=$${platform%/*}; arch=$${platform#*/}; \
-		GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w -X $(PACKAGE)/internal/cli.Version=$(VERSION)" -o $(DIST)/ec ./cmd/ec || exit 1; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w -X $(PACKAGE)/internal/cli.Version=$(VERSION)" -o $(DIST)/ec ./cmd/ec || exit 1; \
 		tar -czf $(DIST)/edge-cli-$(VERSION)-$$os-$$arch.tar.gz -C $(DIST) ec || exit 1; \
 		rm -f $(DIST)/ec; \
 	done
